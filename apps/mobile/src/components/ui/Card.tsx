@@ -1,5 +1,5 @@
 import React from 'react'
-import { View, ViewStyle, StyleSheet } from 'react-native'
+import { View, ViewStyle } from 'react-native'
 import { COLORS, RADIUS, SPACING } from '@/constants/theme'
 
 // ============================================================
