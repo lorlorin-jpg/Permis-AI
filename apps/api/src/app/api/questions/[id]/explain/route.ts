@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma'
 import { openai } from '@/lib/openai'
 import { rateLimitByPlan } from '@/lib/rate-limit'
 import { EXPLANATION_PROMPT } from '@/lib/ai/prompts'
-import { StreamingTextResponse } from 'ai'
 
 interface ExplainRequestBody {
   userAnswerId: string
