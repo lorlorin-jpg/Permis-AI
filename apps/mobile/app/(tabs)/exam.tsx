@@ -15,6 +15,8 @@ import { useCreateSession, useSessionHistory } from '@api/sessions'
 import { useQuizStore } from '@store/quiz.store'
 import { COLORS, SPACING, RADIUS } from '@/constants/theme'
 import { Badge } from '@components/ui/Badge'
+import { Skeleton } from '@components/ui/Skeleton'
+import * as Haptics from 'expo-haptics'
 
 // ============================================================
 // EXAM INFO CARDS
@@ -51,6 +53,7 @@ export default function ExamScreen() {
           style: 'default',
           onPress: async () => {
             try {
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
               const session = await createSession.mutateAsync({
                 type: 'EXAM',
                 questionCount: 45,
@@ -59,7 +62,8 @@ export default function ExamScreen() {
               setQuestions(session.questions)
               router.push(`/exam/${session.id}`)
             } catch (e) {
-              Alert.alert('Erreur', 'Impossible de démarrer l\'examen')
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+              Alert.alert('Erreur', 'Impossible de démarrer l\'examen. Vérifiez votre connexion.')
             }
           },
         },
@@ -271,7 +275,7 @@ export default function ExamScreen() {
         )}
 
         {/* Past Exams */}
-        {examHistory.length > 0 && (
+        {(isLoading || examHistory.length > 0) && (
           <View style={{ paddingHorizontal: SPACING.lg }}>
             <Text
               style={{
@@ -285,7 +289,10 @@ export default function ExamScreen() {
             </Text>
 
             <View style={{ gap: SPACING.sm }}>
-              {examHistory.map((exam) => (
+              {isLoading && [0, 1, 2].map((i) => (
+                <Skeleton key={i} height={68} borderRadius={12} />
+              ))}
+              {!isLoading && examHistory.map((exam) => (
                 <TouchableOpacity
                   key={exam.id}
                   onPress={() => router.push(`/results/${exam.id}`)}
