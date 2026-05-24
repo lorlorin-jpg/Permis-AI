@@ -17,6 +17,9 @@ import { COLORS, SPACING, RADIUS } from '@/constants/theme'
 import { CATEGORIES } from '@/constants/categories'
 import { ProgressBar } from '@components/ui/ProgressBar'
 import { Badge } from '@components/ui/Badge'
+import { Skeleton } from '@components/ui/Skeleton'
+import { EmptyState } from '@components/ui/EmptyState'
+import * as Haptics from 'expo-haptics'
 
 // ============================================================
 // SCORE CIRCLE
@@ -61,6 +64,17 @@ export default function ResultsScreen() {
   const { setSession, setQuestions, reset } = useQuizStore()
 
   const { data: result, isLoading, error } = useSessionResult(sessionId ?? '')
+
+  // Haptic feedback once results are available
+  React.useEffect(() => {
+    if (result) {
+      if (result.passed) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+      }
+    }
+  }, [result?.passed])
 
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000)

@@ -26,6 +26,7 @@ import { QuestionCard } from '@components/quiz/QuestionCard'
 import { AnswerOption } from '@components/quiz/AnswerOption'
 import { ProgressBar } from '@components/ui/ProgressBar'
 import { AIExplanationSheet } from '@components/quiz/AIExplanationSheet'
+import { Skeleton, SkeletonText } from '@components/ui/Skeleton'
 import type { AnswerState } from '@components/quiz/AnswerOption'
 
 // ============================================================
@@ -161,11 +162,34 @@ export default function QuizScreen() {
 
   if (!question) {
     return (
-      <View style={{ flex: 1, backgroundColor: COLORS.background, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={COLORS.primary} size="large" />
-        <Text style={{ color: COLORS.textSecondary, marginTop: SPACING.md }}>
-          Chargement des questions...
-        </Text>
+      <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <SafeAreaView style={{ flex: 1 }}>
+          {/* Skeleton top bar */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: SPACING.lg,
+              paddingTop: SPACING.sm,
+              paddingBottom: SPACING.md,
+              gap: SPACING.md,
+            }}
+          >
+            <Skeleton width={36} height={36} borderRadius={18} />
+            <View style={{ flex: 1, gap: 6 }}>
+              <Skeleton height={6} borderRadius={99} />
+              <Skeleton height={12} width={120} borderRadius={4} />
+            </View>
+            <Skeleton width={60} height={28} borderRadius={99} />
+          </View>
+          {/* Skeleton question + answers */}
+          <View style={{ paddingHorizontal: SPACING.lg, gap: SPACING.lg, marginTop: SPACING.md }}>
+            <SkeletonText lines={3} />
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} height={56} borderRadius={16} />
+            ))}
+          </View>
+        </SafeAreaView>
       </View>
     )
   }

@@ -20,6 +20,9 @@ import { CategoryCard } from '@components/home/CategoryCard'
 import { StatsCard } from '@components/home/StatsCard'
 import { ProgressBar } from '@components/ui/ProgressBar'
 import { Badge } from '@components/ui/Badge'
+import { Skeleton, SkeletonCard, SkeletonCardGrid } from '@components/ui/Skeleton'
+import { Toast } from '@components/ui/Toast'
+import { useToast } from '@/hooks/useToast'
 
 // ============================================================
 // DAILY XP GOAL
@@ -38,6 +41,7 @@ export default function HomeScreen() {
   const createSession = useCreateSession()
   const { setSession, setQuestions } = useQuizStore()
 
+  const { toast, showError, hideToast } = useToast()
   const firstName = user?.name?.split(' ')[0] ?? 'Conducteur'
   const streak = user?.streak ?? 0
   const totalXp = user?.xp ?? 0
@@ -64,9 +68,9 @@ export default function HomeScreen() {
       setQuestions(session.questions)
       router.push(`/quiz/${session.id}`)
     } catch (e) {
-      console.error('Failed to create session:', e)
+      showError('Impossible de démarrer la session. Réessayez.')
     }
-  }, [createSession, router])
+  }, [createSession, router, showError])
 
   const handleCategoryPress = useCallback(
     async (categoryKey: string) => {
@@ -80,14 +84,21 @@ export default function HomeScreen() {
         setQuestions(session.questions)
         router.push(`/quiz/${session.id}`)
       } catch (e) {
-        console.error('Failed to create session:', e)
+        showError('Impossible de démarrer cette catégorie.')
       }
     },
-    [createSession, router],
+    [createSession, router, showError],
   )
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+      {/* Toast overlay */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        visible={toast.visible}
+        onHide={hideToast}
+      />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: SPACING.xxl }}
@@ -207,27 +218,37 @@ export default function HomeScreen() {
             gap: SPACING.sm,
           }}
         >
-          <StatsCard
-            icon="check-circle"
-            iconColor={COLORS.success}
-            label="Questions"
-            value={user?.totalQuestionsAnswered ?? 0}
-            sublabel="répondues"
-          />
-          <StatsCard
-            icon="target"
-            iconColor={COLORS.primary}
-            label="Précision"
-            value={`${accuracy}%`}
-            sublabel="de bonnes réponses"
-          />
-          <StatsCard
-            icon="award"
-            iconColor={COLORS.warning}
-            label="Niveau"
-            value={`Niv. ${user?.level ?? 1}`}
-            sublabel={`${user?.xp ?? 0} XP`}
-          />
+          {isLoading ? (
+            <>
+              <SkeletonCard style={{ flex: 1 }} />
+              <SkeletonCard style={{ flex: 1 }} />
+              <SkeletonCard style={{ flex: 1 }} />
+            </>
+          ) : (
+            <>
+              <StatsCard
+                icon="check-circle"
+                iconColor={COLORS.success}
+                label="Questions"
+                value={user?.totalQuestionsAnswered ?? 0}
+                sublabel="répondues"
+              />
+              <StatsCard
+                icon="target"
+                iconColor={COLORS.primary}
+                label="Précision"
+                value={`${accuracy}%`}
+                sublabel="de bonnes réponses"
+              />
+              <StatsCard
+                icon="award"
+                iconColor={COLORS.warning}
+                label="Niveau"
+                value={`Niv. ${user?.level ?? 1}`}
+                sublabel={`${user?.xp ?? 0} XP`}
+              />
+            </>
+          )}
         </View>
 
         {/* ── Continuer l'apprentissage ── */}
@@ -350,17 +371,21 @@ export default function HomeScreen() {
             Catégories
           </Text>
 
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm }}>
-            {CATEGORY_LIST.map((cat) => (
-              <View key={cat.key} style={{ width: '48%' }}>
-                <CategoryCard
-                  category={cat}
-                  progress={categoryProgressMap[cat.key] ?? 0}
-                  onPress={() => handleCategoryPress(cat.key)}
-                />
-              </View>
-            ))}
-          </View>
+          {isLoading ? (
+            <SkeletonCardGrid count={6} />
+          ) : (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm }}>
+              {CATEGORY_LIST.map((cat) => (
+                <View key={cat.key} style={{ width: '48%' }}>
+                  <CategoryCard
+                    category={cat}
+                    progress={categoryProgressMap[cat.key] ?? 0}
+                    onPress={() => handleCategoryPress(cat.key)}
+                  />
+                </View>
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>

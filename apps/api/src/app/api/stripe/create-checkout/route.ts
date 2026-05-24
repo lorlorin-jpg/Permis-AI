@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 import Stripe from 'stripe'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-04-10',
+  apiVersion: '2025-04-30.basil',
 })
 
 const PREMIUM_PRICE_ID = process.env.STRIPE_PREMIUM_PRICE_ID!
@@ -44,9 +44,44 @@ export async function POST(request: NextRequest) {
       // Body is optional
     }
 
-    const successUrl =
-      body.successUrl ?? `${APP_URL}/premium/success?session_id={CHECKOUT_SESSION_ID}`
-    const cancelUrl = body.cancelUrl ?? `${APP_URL}/premium/cancel`
+    // Validate custom redirect URLs against the allowed origin (open-redirect prevention)
+    const defaultSuccessUrl = `${APP_URL}/premium/success?session_id={CHECKOUT_SESSION_ID}`
+    const defaultCancelUrl = `${APP_URL}/premium/cancel`
+
+    let successUrl = defaultSuccessUrl
+    let cancelUrl = defaultCancelUrl
+
+    if (body.successUrl) {
+      try {
+        const u = new URL(body.successUrl)
+        const allowed = new URL(APP_URL)
+        if (u.origin !== allowed.origin) {
+          return NextResponse.json(
+            { error: 'successUrl must point to the application origin' },
+            { status: 400 }
+          )
+        }
+        successUrl = body.successUrl
+      } catch {
+        return NextResponse.json({ error: 'successUrl is not a valid URL' }, { status: 400 })
+      }
+    }
+
+    if (body.cancelUrl) {
+      try {
+        const u = new URL(body.cancelUrl)
+        const allowed = new URL(APP_URL)
+        if (u.origin !== allowed.origin) {
+          return NextResponse.json(
+            { error: 'cancelUrl must point to the application origin' },
+            { status: 400 }
+          )
+        }
+        cancelUrl = body.cancelUrl
+      } catch {
+        return NextResponse.json({ error: 'cancelUrl is not a valid URL' }, { status: 400 })
+      }
+    }
 
     // Get or create Stripe customer
     let stripeCustomerId = user.stripeCustomerId

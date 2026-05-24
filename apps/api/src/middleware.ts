@@ -5,6 +5,7 @@ import { jwtVerify } from 'jose'
 const PUBLIC_ROUTES = [
   '/api/auth/verify',
   '/api/webhooks/stripe',
+  '/api/health',
 ]
 
 // Routes that require auth but allow OPTIONS (CORS preflight)
@@ -94,7 +95,11 @@ export async function middleware(request: NextRequest) {
     )
   }
 
-  // Forward user context via headers to API route handlers
+  // Forward user context via headers to API route handlers.
+  // NOTE: x-user-role is the Supabase PostgREST role claim ('authenticated' for
+  //       normal users). It is NOT the application-level role (FREE/PREMIUM/ADMIN).
+  //       For permission checks requiring the app role, query the User table via
+  //       prisma.user.findUnique({ where: { supabaseId } }).
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-user-supabase-id', payload.sub)
   requestHeaders.set('x-user-email', payload.email ?? '')
@@ -107,6 +112,22 @@ export async function middleware(request: NextRequest) {
   // Add CORS headers to all responses
   response.headers.set('Access-Control-Allow-Origin', CORS_ORIGIN)
   response.headers.set('Access-Control-Allow-Credentials', 'true')
+
+  // Security headers
+  response.headers.set('X-Content-Type-Options', 'nosniff')
+  response.headers.set('X-Frame-Options', 'DENY')
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  response.headers.set(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=()'
+  )
+  // Only set HSTS in production to avoid breaking local dev
+  if (process.env.NODE_ENV === 'production') {
+    response.headers.set(
+      'Strict-Transport-Security',
+      'max-age=63072000; includeSubDomains; preload'
+    )
+  }
 
   return response
 }

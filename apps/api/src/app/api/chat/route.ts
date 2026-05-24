@@ -6,7 +6,6 @@ import { rateLimitByPlan } from '@/lib/rate-limit'
 import { DRIVING_INSTRUCTOR_PROMPT } from '@/lib/ai/prompts'
 import { buildRAGContext } from '@/lib/ai/rag'
 import { logger } from '@/lib/logger'
-import type { QuestionCategory } from '@prisma/client'
 
 // ── Zod validation schema ─────────────────────────────────────────────────────
 const ChatBodySchema = z.object({

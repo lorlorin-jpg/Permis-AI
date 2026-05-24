@@ -1,7 +1,7 @@
-import React from 'react'
-import { View, Text, Image } from 'react-native'
+import React, { useState } from 'react'
+import { View, Text, Image, ActivityIndicator } from 'react-native'
 import { Question } from '@permis-ai/shared'
-import { COLORS, RADIUS, SPACING, FONT_SIZE } from '@/constants/theme'
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/constants/theme'
 import { CATEGORIES } from '@/constants/categories'
 import Badge from '@/components/ui/Badge'
 
@@ -21,19 +21,19 @@ export interface QuestionCardProps {
 
 function getDifficultyLabel(difficulty: string): string {
   switch (difficulty) {
-    case 'EASY': return 'Facile'
+    case 'EASY':   return 'Facile'
     case 'MEDIUM': return 'Moyen'
-    case 'HARD': return 'Difficile'
-    default: return difficulty
+    case 'HARD':   return 'Difficile'
+    default:       return difficulty
   }
 }
 
 function getDifficultyVariant(difficulty: string): 'success' | 'warning' | 'error' {
   switch (difficulty) {
-    case 'EASY': return 'success'
+    case 'EASY':   return 'success'
     case 'MEDIUM': return 'warning'
-    case 'HARD': return 'error'
-    default: return 'warning'
+    case 'HARD':   return 'error'
+    default:       return 'warning'
   }
 }
 
@@ -47,11 +47,13 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
   totalQuestions,
 }) => {
   const categoryDef = CATEGORIES[question.category]
+  const [imageLoading, setImageLoading] = useState(!!question.imageUrl)
+  const [imageError, setImageError]     = useState(false)
 
   return (
     <View style={{ gap: SPACING.md }}>
       {/* Category & Difficulty Row */}
-      <View style={{ flexDirection: 'row', gap: SPACING.sm, flexWrap: 'wrap' }}>
+      <View style={{ flexDirection: 'row', gap: SPACING.sm, flexWrap: 'wrap', alignItems: 'center' }}>
         {categoryDef && (
           <Badge
             label={categoryDef.label}
@@ -68,32 +70,49 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
         />
       </View>
 
-      {/* Question Text */}
+      {/* Question Text — largest type on the screen */}
       <Text
         style={{
           color: COLORS.textPrimary,
-          fontSize: FONT_SIZE.xl,
-          fontWeight: '600',
-          lineHeight: 30,
+          fontSize: TYPOGRAPHY.fontSizes.xl,
+          fontWeight: TYPOGRAPHY.fontWeights.semibold,
+          lineHeight: TYPOGRAPHY.fontSizes.xl * TYPOGRAPHY.lineHeights.relaxed,
+          letterSpacing: -0.2,
         }}
       >
         {question.text}
       </Text>
 
-      {/* Optional Image */}
-      {question.imageUrl && (
+      {/* Optional Image with loading/error states */}
+      {question.imageUrl && !imageError && (
         <View
           style={{
             borderRadius: RADIUS.lg,
             overflow: 'hidden',
             backgroundColor: COLORS.elevated,
             height: 200,
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
+          {imageLoading && (
+            <View style={{ position: 'absolute', zIndex: 1 }}>
+              <ActivityIndicator color={COLORS.primary} />
+            </View>
+          )}
           <Image
             source={{ uri: question.imageUrl }}
-            style={{ width: '100%', height: '100%' }}
+            style={{
+              width: '100%',
+              height: '100%',
+              opacity: imageLoading ? 0 : 1,
+            }}
             resizeMode="contain"
+            onLoadEnd={() => setImageLoading(false)}
+            onError={() => {
+              setImageLoading(false)
+              setImageError(true)
+            }}
           />
         </View>
       )}

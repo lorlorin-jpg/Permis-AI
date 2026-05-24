@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { openai } from '@/lib/openai'
 import { rateLimitByPlan } from '@/lib/rate-limit'
@@ -6,10 +7,10 @@ import { EXPLANATION_PROMPT } from '@/lib/ai/prompts'
 import { CacheKey, TTL, cacheGet, cacheSet } from '@/lib/cache'
 import { logger } from '@/lib/logger'
 
-interface ExplainRequestBody {
-  userAnswerId: string
-  questionId?: string
-}
+// ── Zod validation schema ─────────────────────────────────────────────────────
+const ExplainBodySchema = z.object({
+  userAnswerId: z.string().cuid({ message: 'userAnswerId must be a valid CUID' }),
+})
 
 export async function POST(
   request: NextRequest,
@@ -53,18 +54,32 @@ export async function POST(
       )
     }
 
-    // Parse body
-    let body: ExplainRequestBody
+    // Parse and validate body
+    let rawBody: unknown
     try {
-      body = await request.json()
+      rawBody = await request.json()
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { userAnswerId } = body
+    const parseResult = ExplainBodySchema.safeParse(rawBody)
+    if (!parseResult.success) {
+      return NextResponse.json(
+        { error: parseResult.error.errors[0]?.message ?? 'Invalid request body' },
+        { status: 400 }
+      )
+    }
 
-    if (!userAnswerId) {
-      return NextResponse.json({ error: 'userAnswerId is required' }, { status: 400 })
+    const { userAnswerId } = parseResult.data
+
+    // IDOR check: verify the user submitted this answer themselves
+    const ownedAnswer = await prisma.userAnswer.findFirst({
+      where: { answerId: userAnswerId, questionId, userId: user.id },
+      select: { id: true },
+    })
+    if (!ownedAnswer) {
+      // Return 404 (not 403) to avoid leaking whether the answerId exists at all
+      return NextResponse.json({ error: 'Answer not found for this question' }, { status: 404 })
     }
 
     // Fetch question with all answers

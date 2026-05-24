@@ -3,13 +3,13 @@ import { TouchableOpacity, Text, View } from 'react-native'
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
+  withSequence,
   withSpring,
   withTiming,
-  interpolateColor,
   Easing,
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
-import { COLORS, RADIUS, SPACING } from '@/constants/theme'
+import { COLORS, RADIUS, SPACING, ANIMATIONS } from '@/constants/theme'
 
 // ============================================================
 // TYPES
@@ -44,7 +44,7 @@ const stateConfig: Record<AnswerState, { bg: string; border: string; labelBg: st
     textColor: COLORS.textPrimary,
   },
   correct: {
-    bg: 'rgba(16, 185, 129, 0.12)',
+    bg: 'rgba(16, 185, 129, 0.15)',
     border: COLORS.success,
     labelBg: COLORS.success,
     textColor: COLORS.textPrimary,
@@ -73,50 +73,65 @@ export const AnswerOption: React.FC<AnswerOptionProps> = ({
 }) => {
   const config = stateConfig[state]
 
-  // Scale animation for press feedback
+  // Scale for press & state feedback
   const scale = useSharedValue(1)
-
-  // Color animations
-  const borderOpacity = useSharedValue(0)
-  const bgOpacity = useSharedValue(0)
+  // Horizontal offset for wrong-answer shake
+  const translateX = useSharedValue(0)
+  // Label badge scale pulse on correct
+  const labelScale = useSharedValue(1)
 
   useEffect(() => {
-    const targetOpacity = state !== 'default' ? 1 : 0
-    borderOpacity.value = withTiming(targetOpacity, { duration: 250, easing: Easing.out(Easing.ease) })
-    bgOpacity.value = withTiming(targetOpacity, { duration: 250, easing: Easing.out(Easing.ease) })
-
     if (state === 'correct') {
-      scale.value = withSpring(1.02, { damping: 10, stiffness: 200 }, () => {
-        scale.value = withSpring(1, { damping: 15, stiffness: 200 })
+      // Satisfying spring pop → settle
+      scale.value = withSpring(1.03, ANIMATIONS.springs.bouncy, () => {
+        scale.value = withSpring(1, ANIMATIONS.springs.smooth)
       })
+      // Label badge celebratory pulse
+      labelScale.value = withSequence(
+        withSpring(1.3, { damping: 6, stiffness: 400 }),
+        withSpring(1.0, ANIMATIONS.springs.smooth),
+      )
     } else if (state === 'wrong') {
-      // Subtle shake
-      scale.value = withSpring(0.98, { damping: 10, stiffness: 300 }, () => {
-        scale.value = withSpring(1, { damping: 15, stiffness: 200 })
-      })
+      // Shake left-right
+      translateX.value = withSequence(
+        withTiming(-8, { duration: 60, easing: Easing.linear }),
+        withTiming(8,  { duration: 60, easing: Easing.linear }),
+        withTiming(-6, { duration: 50, easing: Easing.linear }),
+        withTiming(6,  { duration: 50, easing: Easing.linear }),
+        withTiming(-3, { duration: 40, easing: Easing.linear }),
+        withTiming(0,  { duration: 40, easing: Easing.linear }),
+      )
+      // Subtle compress
+      scale.value = withSequence(
+        withTiming(0.97, { duration: 80 }),
+        withSpring(1, ANIMATIONS.springs.smooth),
+      )
     }
   }, [state])
 
   const animatedContainerStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
+    transform: [{ scale: scale.value }, { translateX: translateX.value }],
     backgroundColor: config.bg,
     borderColor: config.border,
-    borderWidth: 1.5,
+    borderWidth: state === 'default' ? 1.5 : 2,
     borderRadius: RADIUS.lg,
     marginBottom: SPACING.sm,
     overflow: 'hidden',
   }))
 
+  const animatedLabelStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: labelScale.value }],
+  }))
+
   const handlePress = async () => {
     if (disabled) return
+    // Press-down spring
     scale.value = withSpring(0.97, { damping: 10 }, () => {
       scale.value = withSpring(1, { damping: 15 })
     })
     await Haptics.selectionAsync()
     onPress()
   }
-
-  const labelBgColor = config.labelBg
 
   return (
     <AnimatedTouchable
@@ -134,16 +149,19 @@ export const AnswerOption: React.FC<AnswerOptionProps> = ({
         }}
       >
         {/* Label Badge */}
-        <View
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            backgroundColor: labelBgColor,
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
+        <Animated.View
+          style={[
+            {
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              backgroundColor: config.labelBg,
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            },
+            animatedLabelStyle,
+          ]}
         >
           <Text
             style={{
@@ -154,7 +172,7 @@ export const AnswerOption: React.FC<AnswerOptionProps> = ({
           >
             {label}
           </Text>
-        </View>
+        </Animated.View>
 
         {/* Answer Text */}
         <Text
@@ -169,13 +187,13 @@ export const AnswerOption: React.FC<AnswerOptionProps> = ({
           {text}
         </Text>
 
-        {/* State Icon */}
+        {/* State Icon — correct */}
         {state === 'correct' && (
           <View
             style={{
-              width: 24,
-              height: 24,
-              borderRadius: 12,
+              width: 26,
+              height: 26,
+              borderRadius: 13,
               backgroundColor: COLORS.success,
               alignItems: 'center',
               justifyContent: 'center',
@@ -184,12 +202,14 @@ export const AnswerOption: React.FC<AnswerOptionProps> = ({
             <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>✓</Text>
           </View>
         )}
+
+        {/* State Icon — wrong */}
         {state === 'wrong' && (
           <View
             style={{
-              width: 24,
-              height: 24,
-              borderRadius: 12,
+              width: 26,
+              height: 26,
+              borderRadius: 13,
               backgroundColor: COLORS.error,
               alignItems: 'center',
               justifyContent: 'center',
@@ -197,6 +217,20 @@ export const AnswerOption: React.FC<AnswerOptionProps> = ({
           >
             <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>✗</Text>
           </View>
+        )}
+
+        {/* State Icon — selected (not yet submitted) */}
+        {state === 'selected' && (
+          <View
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 10,
+              backgroundColor: COLORS.primary,
+              borderWidth: 3,
+              borderColor: COLORS.primaryLight,
+            }}
+          />
         )}
       </View>
     </AnimatedTouchable>
