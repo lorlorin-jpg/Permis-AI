@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  FlatList,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'

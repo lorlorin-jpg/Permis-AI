@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useState } from 'react'
 import {
   View,
   Text,
@@ -54,6 +54,8 @@ export default function ProfileScreen() {
   const accuracy = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0
   const streak = user?.streak ?? 0
   const longestStreak = user?.longestStreak ?? 0
+
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true)
 
   const categoryProgressMap: Record<string, number> = {}
   if (progress?.categoryProgress) {
@@ -446,8 +448,8 @@ export default function ProfileScreen() {
                 Notifications
               </Text>
               <Switch
-                value={true}
-                onValueChange={() => {}}
+                value={notificationsEnabled}
+                onValueChange={setNotificationsEnabled}
                 trackColor={{ true: COLORS.primary, false: COLORS.elevated }}
                 thumbColor="#FFFFFF"
               />
