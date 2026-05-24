@@ -1,0 +1,232 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────
+
+enum UserRole {
+  FREE
+  PREMIUM
+  ADMIN
+}
+
+enum QuestionCategory {
+  SIGNS
+  PRIORITY
+  HIGHWAY
+  SPEED_LIMITS
+  ALCOHOL
+  DISTANCES
+  REAL_SITUATIONS
+  ECO_DRIVING
+  SAFETY
+  BEHAVIORS
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum SessionType {
+  PRACTICE
+  EXAM
+  REVIEW
+  AI_GUIDED
+}
+
+enum SessionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+// ─────────────────────────────────────────
+// Models
+// ─────────────────────────────────────────
+
+model User {
+  id                   String    @id @default(cuid())
+  supabaseId           String?   @unique
+  email                String    @unique
+  name                 String?
+  avatarUrl            String?
+  role                 UserRole  @default(FREE)
+  xp                   Int       @default(0)
+  level                Int       @default(1)
+  streak               Int       @default(0)
+  lastStudyDate        DateTime?
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  isPremium            Boolean   @default(false)
+  premiumExpiresAt     DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  userAnswers  UserAnswer[]
+  sessions     ExamSession[]
+  chatMessages ChatMessage[]
+  userProgress UserProgress[]
+  badges       UserBadge[]
+}
+
+model Question {
+  id            String           @id @default(cuid())
+  text          String
+  imageUrl      String?
+  explanation   String
+  category      QuestionCategory
+  difficulty    Difficulty
+  tags          String[]
+  isAIGenerated Boolean          @default(false)
+  isPublished   Boolean          @default(true)
+  embeddings    Float[]
+  metadata      Json?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  answers        Answer[]
+  userAnswers    UserAnswer[]
+  aiExplanations AIExplanation[]
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  text       String
+  isCorrect  Boolean
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  userAnswers UserAnswer[]
+}
+
+model UserAnswer {
+  id         String      @id @default(cuid())
+  userId     String
+  questionId String
+  answerId   String
+  isCorrect  Boolean
+  timeSpent  Int
+  sessionId  String?
+  createdAt  DateTime    @default(now())
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answer   Answer      @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  session  ExamSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+}
+
+model ExamSession {
+  id             String           @id @default(cuid())
+  userId         String
+  type           SessionType
+  status         SessionStatus    @default(IN_PROGRESS)
+  score          Float?
+  totalQuestions Int
+  correctAnswers Int?
+  timeSpent      Int?
+  startedAt      DateTime         @default(now())
+  completedAt    DateTime?
+  categoryFilter QuestionCategory[]
+  metadata       Json?
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAnswers UserAnswer[]
+  aiAnalysis  AIAnalysis[]
+}
+
+model UserProgress {
+  id             String           @id @default(cuid())
+  userId         String
+  category       QuestionCategory
+  totalAnswered  Int              @default(0)
+  correctAnswers Int              @default(0)
+  averageTime    Float            @default(0)
+  weaknessScore  Float            @default(0)
+  lastPracticed  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+}
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  userId    String
+  role      MessageRole
+  content   String
+  context   Json?
+  tokens    Int?
+  createdAt DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AIExplanation {
+  id         String   @id @default(cuid())
+  questionId String
+  language   String   @default("fr")
+  content    String
+  examples   String[]
+  tips       String[]
+  cachedAt   DateTime @default(now())
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, language])
+}
+
+model AIAnalysis {
+  id        String      @id @default(cuid())
+  sessionId String
+  content   String
+  createdAt DateTime    @default(now())
+
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model Badge {
+  id          String      @id
+  name        String
+  description String
+  icon        String
+  condition   Json
+
+  userBadges UserBadge[]
+}
+
+model UserBadge {
+  id       String   @id @default(cuid())
+  userId   String
+  badgeId  String
+  earnedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+}
+
+model RateLimitLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  createdAt DateTime @default(now())
+
+  @@index([userId, action, createdAt])
+}
