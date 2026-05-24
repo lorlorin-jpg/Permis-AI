@@ -71,8 +71,8 @@ model User {
   level                Int       @default(1)
   streak               Int       @default(0)
   lastStudyDate        DateTime?
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
   isPremium            Boolean   @default(false)
   premiumExpiresAt     DateTime?
   createdAt            DateTime  @default(now())
@@ -83,6 +83,9 @@ model User {
   chatMessages ChatMessage[]
   userProgress UserProgress[]
   badges       UserBadge[]
+
+  @@index([isPremium])
+  @@index([role])
 }
 
 model Question {
@@ -103,6 +106,13 @@ model Question {
   answers        Answer[]
   userAnswers    UserAnswer[]
   aiExplanations AIExplanation[]
+
+  @@index([category])
+  @@index([difficulty])
+  @@index([category, difficulty])
+  @@index([category, difficulty, isPublished])
+  @@index([isPublished])
+  @@index([isPublished, category])
 }
 
 model Answer {
@@ -129,6 +139,11 @@ model UserAnswer {
   question Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
   answer   Answer      @relation(fields: [answerId], references: [id], onDelete: Cascade)
   session  ExamSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([questionId])
+  @@index([userId, createdAt])
 }
 
 model ExamSession {
@@ -148,6 +163,11 @@ model ExamSession {
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   userAnswers UserAnswer[]
   aiAnalysis  AIAnalysis[]
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([userId, type, status])
+  @@index([startedAt])
 }
 
 model UserProgress {
@@ -175,6 +195,9 @@ model ChatMessage {
   createdAt DateTime    @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt])
 }
 
 model AIExplanation {

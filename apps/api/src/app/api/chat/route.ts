@@ -1,18 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { openai } from '@/lib/openai'
 import { rateLimitByPlan } from '@/lib/rate-limit'
 import { DRIVING_INSTRUCTOR_PROMPT } from '@/lib/ai/prompts'
 import { buildRAGContext } from '@/lib/ai/rag'
-import { OpenAIStream, StreamingTextResponse } from 'ai'
+import { logger } from '@/lib/logger'
 import type { QuestionCategory } from '@prisma/client'
 
-interface ChatBody {
-  message: string
-  context?: {
-    questionId?: string
-    sessionId?: string
+// ── Zod validation schema ─────────────────────────────────────────────────────
+const ChatBodySchema = z.object({
+  message: z
+    .string()
+    .min(1, 'message is required')
+    .max(2000, 'Message too long (max 2000 characters)')
+    .trim(),
+  context: z
+    .object({
+      questionId: z.string().cuid().optional(),
+      sessionId: z.string().cuid().optional(),
+    })
+    .optional(),
+})
+
+// ── Prompt-injection sanitisation ─────────────────────────────────────────────
+function sanitizeUserMessage(message: string): string {
+  const dangerous = [
+    /ignore\s+(previous|all)\s+instructions/gi,
+    /system\s+prompt/gi,
+    /you\s+are\s+now/gi,
+    /forget\s+(your|all)\s+(instructions|rules)/gi,
+    /jailbreak/gi,
+    /DAN\s+mode/gi,
+    /act\s+as\s+(?!a\s+driving)/gi,          // "act as X" but not "act as a driving instructor"
+    /pretend\s+(you\s+are|to\s+be)/gi,
+    /disregard\s+(previous|all|your)/gi,
+    /override\s+(system|instructions|rules)/gi,
+  ]
+  let sanitized = message.trim().slice(0, 2000)
+  for (const pattern of dangerous) {
+    sanitized = sanitized.replace(pattern, '[FILTERED]')
   }
+  return sanitized
 }
 
 export const runtime = 'nodejs'
@@ -53,27 +82,38 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    let body: ChatBody
+    let rawBody: unknown
     try {
-      body = await request.json()
+      rawBody = await request.json()
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { message, context } = body
-
-    if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return NextResponse.json({ error: 'message is required' }, { status: 400 })
-    }
-
-    if (message.length > 2000) {
+    const parseResult = ChatBodySchema.safeParse(rawBody)
+    if (!parseResult.success) {
       return NextResponse.json(
-        { error: 'Message too long (max 2000 characters)' },
+        { error: parseResult.error.errors[0]?.message ?? 'Invalid request body' },
         { status: 400 }
       )
     }
 
-    // Fetch last 10 messages for conversation history
+    const { message: rawMessage, context } = parseResult.data
+
+    // Sanitise against prompt-injection attempts
+    const message = sanitizeUserMessage(rawMessage)
+
+    // Validate contextual IDs belong to this user (IDOR prevention)
+    if (context?.sessionId) {
+      const sessionOwned = await prisma.examSession.findFirst({
+        where: { id: context.sessionId, userId: user.id },
+        select: { id: true },
+      })
+      if (!sessionOwned) {
+        return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+      }
+    }
+
+    // Fetch last 10 messages scoped to this user (IDOR prevention: userId filter is mandatory)
     const history = await prisma.chatMessage.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: 'desc' },
@@ -89,6 +129,7 @@ export async function POST(request: NextRequest) {
       // If a specific question is referenced, build context from it
       try {
         const question = await prisma.question.findFirst({
+          // isPublished guard prevents leaking unpublished question content
           where: { id: context.questionId, isPublished: true },
           include: {
             answers: { select: { text: true, isCorrect: true } },
@@ -103,8 +144,8 @@ export async function POST(request: NextRequest) {
             `Bonne réponse: ${correctAns?.text ?? 'N/A'}\n` +
             `Explication: ${question.explanation}`
         }
-      } catch {
-        // Non-critical
+      } catch (err) {
+        logger.warn('[chat] Failed to build question context', { questionId: context.questionId, error: String(err) })
       }
     } else {
       // General RAG search based on the user's message
@@ -113,8 +154,8 @@ export async function POST(request: NextRequest) {
         if (rag.totalTokensEstimate < 2000) {
           ragContextStr = rag.contextString
         }
-      } catch {
-        // Non-critical — proceed without RAG
+      } catch (err) {
+        logger.warn('[chat] RAG context build failed — proceeding without context', { error: String(err) })
       }
     }
 
@@ -129,15 +170,15 @@ export async function POST(request: NextRequest) {
         role: m.role === 'USER' ? ('user' as const) : ('assistant' as const),
         content: m.content,
       })),
-      { role: 'user', content: message.trim() },
+      { role: 'user', content: message },
     ]
 
-    // Persist user message before streaming starts
+    // Persist sanitized user message before streaming starts
     await prisma.chatMessage.create({
       data: {
         userId: user.id,
         role: 'USER',
-        content: message.trim(),
+        content: message,
         context: context ?? null,
       },
     })
@@ -151,26 +192,50 @@ export async function POST(request: NextRequest) {
       stream: true,
     })
 
-    const stream = OpenAIStream(response, {
-      onCompletion: async (completion) => {
-        // Persist assistant response after streaming completes
+    // Native streaming via ReadableStream (no deprecated `ai` package dependency)
+    let fullContent = ''
+    const encoder = new TextEncoder()
+
+    const readable = new ReadableStream({
+      async start(controller) {
         try {
-          await prisma.chatMessage.create({
-            data: {
-              userId: user.id,
-              role: 'ASSISTANT',
-              content: completion,
-              context: context ?? null,
-            },
-          })
+          for await (const chunk of response) {
+            const delta = chunk.choices[0]?.delta?.content ?? ''
+            if (delta) {
+              fullContent += delta
+              // Emit as SSE data frame so mobile clients can parse it
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`))
+            }
+          }
+          // Signal end-of-stream
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+
+          // Persist assistant message after stream completes
+          try {
+            await prisma.chatMessage.create({
+              data: {
+                userId: user.id,
+                role: 'ASSISTANT',
+                content: fullContent,
+                context: context ?? null,
+              },
+            })
+          } catch (err) {
+            logger.error('[chat] Failed to persist assistant message', err)
+          }
         } catch (err) {
-          console.error('[chat] Failed to persist assistant message:', err)
+          logger.error('[chat] Streaming error', err)
+          controller.error(err)
         }
       },
     })
 
-    return new StreamingTextResponse(stream, {
+    return new Response(readable, {
       headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
         'X-RateLimit-Remaining': String(rl.remaining),
         'X-RateLimit-Reset': String(rl.reset),
       },

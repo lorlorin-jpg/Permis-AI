@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { openai } from '@/lib/openai'
 import { rateLimitByPlan } from '@/lib/rate-limit'
 import { EXPLANATION_PROMPT } from '@/lib/ai/prompts'
+import { CacheKey, TTL, cacheGet, cacheSet } from '@/lib/cache'
+import { logger } from '@/lib/logger'
 
 interface ExplainRequestBody {
   userAnswerId: string
@@ -90,12 +92,27 @@ export async function POST(
       return NextResponse.json({ error: 'Question has no correct answer defined' }, { status: 500 })
     }
 
-    // Check for cached explanation
+    // Determine correctness BEFORE any cache lookups (was declared after use — runtime crash bug)
+    const isCorrect = userAnswer.isCorrect
+
+    // Check Redis cache first (faster than DB)
+    const redisCacheKey = CacheKey.aiExplanation(questionId, 'fr')
+    const redisCache = await cacheGet<{ explanation: string; examples: string[]; tips: string[] }>(redisCacheKey)
+
+    if (redisCache && isCorrect) {
+      return NextResponse.json({
+        explanation: redisCache.explanation,
+        examples: redisCache.examples,
+        tips: redisCache.tips,
+        isCorrect,
+        cached: true,
+      })
+    }
+
+    // Fall back to DB cache
     const cached = await prisma.aIExplanation.findUnique({
       where: { questionId_language: { questionId, language: 'fr' } },
     })
-
-    const isCorrect = userAnswer.isCorrect
 
     // Build the prompt
     const prompt = EXPLANATION_PROMPT
@@ -121,14 +138,14 @@ export async function POST(
       })
     }
 
-    // Stream the explanation from OpenAI
+    // Stream the explanation from OpenAI (SSE format so mobile can parse chunks)
     const stream = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
         {
           role: 'system',
           content:
-            'Tu es un moniteur d\'auto-école suisse expert. Réponds toujours en JSON valide selon le format demandé. Ne mets jamais de texte avant ou après le JSON.',
+            "Tu es un moniteur d'auto-école suisse expert. Réponds toujours en JSON valide selon le format demandé. Ne mets jamais de texte avant ou après le JSON.",
         },
         { role: 'user', content: prompt },
       ],
@@ -138,10 +155,9 @@ export async function POST(
       stream: true,
     })
 
-    // Collect streamed chunks and accumulate the full response
     let fullContent = ''
-
     const encoder = new TextEncoder()
+
     const readable = new ReadableStream({
       async start(controller) {
         try {
@@ -149,35 +165,48 @@ export async function POST(
             const delta = chunk.choices[0]?.delta?.content ?? ''
             if (delta) {
               fullContent += delta
-              controller.enqueue(encoder.encode(delta))
+              // SSE format — matches the mobile client's SSE parser
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`))
             }
           }
 
-          // After streaming completes, try to cache the explanation
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+
+          // Cache the complete explanation in Redis + DB
           try {
             const parsed = JSON.parse(fullContent)
+            const cachePayload = {
+              explanation: parsed.explanation ?? fullContent,
+              examples: parsed.examples ?? [],
+              tips: parsed.tips ?? [],
+            }
+
+            // Redis cache (fast path for next hit)
+            await cacheSet(redisCacheKey, cachePayload, TTL.AI_EXPLANATION)
+
+            // DB cache (durable)
             await prisma.aIExplanation.upsert({
               where: { questionId_language: { questionId, language: 'fr' } },
               update: {
-                content: parsed.explanation ?? fullContent,
-                examples: parsed.examples ?? [],
-                tips: parsed.tips ?? [],
+                content: cachePayload.explanation,
+                examples: cachePayload.examples,
+                tips: cachePayload.tips,
                 cachedAt: new Date(),
               },
               create: {
                 questionId,
                 language: 'fr',
-                content: parsed.explanation ?? fullContent,
-                examples: parsed.examples ?? [],
-                tips: parsed.tips ?? [],
+                content: cachePayload.explanation,
+                examples: cachePayload.examples,
+                tips: cachePayload.tips,
               },
             })
-          } catch {
-            // Ignore cache write failures silently
+          } catch (cacheErr) {
+            logger.warn('[explain] Cache write failed', { questionId, error: String(cacheErr) })
           }
-
-          controller.close()
         } catch (err) {
+          logger.error('[explain] Streaming error', err)
           controller.error(err)
         }
       },
@@ -185,10 +214,11 @@ export async function POST(
 
     return new Response(readable, {
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
         'X-RateLimit-Remaining': String(rateLimitResult.remaining),
         'X-RateLimit-Reset': String(rateLimitResult.reset),
-        'Transfer-Encoding': 'chunked',
       },
     })
   } catch (error) {

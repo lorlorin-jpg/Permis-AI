@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import {
   calculateXP,
@@ -7,11 +8,12 @@ import {
   checkForBadges,
 } from '@/lib/scoring'
 
-interface SubmitBody {
-  questionId: string
-  answerId: string
-  timeSpent: number
-}
+// ── Zod validation schema ─────────────────────────────────────────────────────
+const SubmitBodySchema = z.object({
+  questionId: z.string().cuid({ message: 'questionId must be a valid CUID' }),
+  answerId: z.string().cuid({ message: 'answerId must be a valid CUID' }),
+  timeSpent: z.number().int().min(0).max(3600).default(0),
+})
 
 export async function POST(
   request: NextRequest,
@@ -58,23 +60,23 @@ export async function POST(
       )
     }
 
-    let body: SubmitBody
+    let rawBody: unknown
     try {
-      body = await request.json()
+      rawBody = await request.json()
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
-    const { questionId, answerId, timeSpent } = body
-
-    if (!questionId || !answerId) {
+    const parseResult = SubmitBodySchema.safeParse(rawBody)
+    if (!parseResult.success) {
       return NextResponse.json(
-        { error: 'questionId and answerId are required' },
+        { error: parseResult.error.errors[0]?.message ?? 'Invalid request body' },
         { status: 400 }
       )
     }
 
-    const safeTimeSpent = Math.max(0, Math.min(timeSpent ?? 0, 3600))
+    const { questionId, answerId, timeSpent } = parseResult.data
+    const safeTimeSpent = timeSpent
 
     // Validate question exists and belongs to this session
     const meta = session.metadata as { questionIds?: string[] } | null
@@ -248,8 +250,9 @@ export async function POST(
         icon: b.icon,
         description: b.description,
       }))
-    } catch {
+    } catch (badgeErr) {
       // Badge check is non-critical; don't fail the request
+      console.error('[sessions/[id]/submit] Badge check error:', badgeErr)
     }
 
     // Fetch the correct answer text for the response

@@ -100,9 +100,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Shuffle and pick
-    const shuffled = allIds.sort(() => Math.random() - 0.5)
-    const selectedIds = shuffled.slice(0, totalQuestions).map((q) => q.id)
+    // Fisher-Yates shuffle (unbiased) then take the required count
+    const idArray = allIds.map((q) => q.id)
+    for (let i = idArray.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[idArray[i], idArray[j]] = [idArray[j], idArray[i]]
+    }
+    const selectedIds = idArray.slice(0, totalQuestions)
 
     // Create the session
     const session = await prisma.examSession.create({
@@ -191,10 +195,25 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const type = searchParams.get('type')
 
+    // Validate status and type params to avoid injection via Prisma enum
+    const VALID_STATUSES = ['IN_PROGRESS', 'COMPLETED', 'ABANDONED'] as const
+    const VALID_TYPES = ['PRACTICE', 'EXAM', 'REVIEW', 'AI_GUIDED'] as const
+
+    type ValidStatus = (typeof VALID_STATUSES)[number]
+    type ValidType = (typeof VALID_TYPES)[number]
+
+    const validatedStatus = status && VALID_STATUSES.includes(status as ValidStatus)
+      ? (status as ValidStatus)
+      : undefined
+
+    const validatedType = type && VALID_TYPES.includes(type as ValidType)
+      ? (type as ValidType)
+      : undefined
+
     const where = {
       userId: user.id,
-      ...(status ? { status: status as any } : {}),
-      ...(type ? { type: type as any } : {}),
+      ...(validatedStatus ? { status: validatedStatus } : {}),
+      ...(validatedType ? { type: validatedType } : {}),
     }
 
     const [sessions, total] = await Promise.all([

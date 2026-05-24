@@ -195,19 +195,21 @@ export async function checkForBadges(
   const earnedIds = new Set(earnedBadges.map((ub) => ub.badgeId))
   const newlyEarned: (Badge & { userBadge: UserBadge })[] = []
 
-  for (const badge of allBadges) {
-    if (earnedIds.has(badge.id)) continue
-
+  // Evaluate all badges, then bulk-insert newly earned ones
+  const toEarn = allBadges.filter((badge) => {
+    if (earnedIds.has(badge.id)) return false
     const condition = badge.condition as BadgeCondition
-    if (evaluateBadgeCondition(condition, stats)) {
-      const userBadge = await prisma.userBadge.create({
-        data: {
-          userId,
-          badgeId: badge.id,
-        },
-      })
-      newlyEarned.push({ ...badge, userBadge })
-    }
+    return evaluateBadgeCondition(condition, stats)
+  })
+
+  for (const badge of toEarn) {
+    // Use upsert to handle concurrent requests — avoids unique-constraint errors
+    const userBadge = await prisma.userBadge.upsert({
+      where: { userId_badgeId: { userId, badgeId: badge.id } },
+      update: {}, // already earned — no-op
+      create: { userId, badgeId: badge.id },
+    })
+    newlyEarned.push({ ...badge, userBadge })
   }
 
   return newlyEarned

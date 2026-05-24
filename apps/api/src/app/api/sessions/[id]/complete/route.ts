@@ -47,6 +47,17 @@ export async function POST(
     })
 
     if (!session) {
+      // Check if the session was already completed (idempotency support)
+      const completedSession = await prisma.examSession.findFirst({
+        where: { id: params.id, userId: user.id, status: 'COMPLETED' },
+        select: { id: true, score: true, correctAnswers: true, timeSpent: true, completedAt: true, type: true },
+      })
+      if (completedSession) {
+        return NextResponse.json(
+          { error: 'Session already completed', session: completedSession },
+          { status: 409 }
+        )
+      }
       return NextResponse.json(
         { error: 'Session not found or not in progress' },
         { status: 404 }
@@ -180,8 +191,9 @@ export async function POST(
         icon: b.icon,
         description: b.description,
       }))
-    } catch {
-      // Non-critical
+    } catch (badgeErr) {
+      // Non-critical — log but don't fail
+      console.error('[sessions/[id]/complete] Badge check error:', badgeErr)
     }
 
     // ── Build recommendations ──────────────────────────────────────────────────
