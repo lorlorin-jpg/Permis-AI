@@ -122,31 +122,42 @@ export default function ResultsScreen() {
 
   if (isLoading) {
     return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: COLORS.background,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: SPACING.md,
-        }}
-      >
-        <ActivityIndicator color={COLORS.primary} size="large" />
-        <Text style={{ color: COLORS.textSecondary }}>Chargement des résultats...</Text>
+      <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <SafeAreaView style={{ flex: 1, padding: SPACING.lg, gap: SPACING.lg }}>
+          {/* Score circle skeleton */}
+          <Skeleton width={160} height={160} borderRadius={80} style={{ alignSelf: 'center', marginTop: SPACING.xl }} />
+          {/* Summary card skeleton */}
+          <Skeleton height={100} borderRadius={16} />
+          {/* Category rows */}
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} height={56} borderRadius={12} />
+          ))}
+        </SafeAreaView>
       </View>
     )
   }
 
   if (error || !result) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background, alignItems: 'center', justifyContent: 'center', gap: SPACING.md }}>
-        <Feather name="alert-circle" size={48} color={COLORS.error} />
-        <Text style={{ color: COLORS.textPrimary, fontSize: 17, fontWeight: '600' }}>
-          Résultats indisponibles
-        </Text>
-        <TouchableOpacity onPress={handleGoHome}>
-          <Text style={{ color: COLORS.primary }}>Retour à l'accueil</Text>
-        </TouchableOpacity>
+      <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <EmptyState
+          icon="⚠️"
+          title="Résultats indisponibles"
+          subtitle="Impossible de charger vos résultats. Revenez à l'accueil et réessayez."
+          action={
+            <TouchableOpacity
+              onPress={handleGoHome}
+              style={{
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: COLORS.primary,
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '600' }}>Retour à l'accueil</Text>
+            </TouchableOpacity>
+          }
+        />
       </SafeAreaView>
     )
   }

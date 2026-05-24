@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
 } from 'react-native'
 import BottomSheet, { BottomSheetScrollView, BottomSheetBackdrop } from '@gorhom/bottom-sheet'
+import * as Haptics from 'expo-haptics'
 import { COLORS, RADIUS, SPACING } from '@/constants/theme'
 import { useStreamExplanation, ExplainQuestionParams } from '@/api/questions'
 
@@ -59,6 +60,7 @@ export const AIExplanationSheet: React.FC<AIExplanationSheetProps> = ({
         prompt,
       }
 
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       streamExplanation(
         {
           params,
